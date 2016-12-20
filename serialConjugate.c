@@ -30,28 +30,17 @@ float vecSub(float *vect, float *vect1, int rows1);
 void printer(float *vect, int rows1);
 
 int main(void)
-{
+{	
 
 
-	/* rows and matrix columns variables*/
-	int rows, cols, rows1,cols1,niter, maxiter;
-
-	float normb;
-
-	maxiter = 3;
-
-	niter = 0;
-
-	
-
-
+	FILE *reader;	
 
 	/* vectors to store matrices for computations*/
 	float *matrixA;
 
 	float *vectorb;
-
-
+	
+	
 	/*initial guess , residual, and arbitary vectors of cg method*/
 	float *vectorX;
 
@@ -64,10 +53,9 @@ int main(void)
 	float *tempscalarvec;
 
 	float *tempmatvec;
-
-
-
-    	float alpha;
+	
+	
+	float alpha;
 
     	float beta;
 
@@ -75,12 +63,22 @@ int main(void)
     	float store;
 
     	float tempstore1;
+    	
+    	
+    	float normb;
 
 
-    	FILE *reader;
+	/* rows and matrix columns variables*/
+	int rows, cols, rows1,cols1,niter, maxiter;
 
 	
-	
+
+	maxiter = 3;
+
+	niter = 0;
+
+
+    	
 
 
 
