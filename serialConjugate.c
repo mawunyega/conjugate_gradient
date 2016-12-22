@@ -13,19 +13,19 @@ void initializeVectB(float *vect, int rows1, FILE *reader);
 
 void initializeGuessVec(float *vect, int rows1, FILE *reader);
 
-float residual(float *vectb, float *vectx, int rows1);
+float residual(float *vectb, float *vectx, int rows1, float *temp);
 
 float vecNorm(float *vectr, int rows1);
 
 float vecVec(float *vect1,float *vect2, int rows1);
 
-float matVec (float *matrix, int rows, int cols, float *vectr);
+float matVec(float *matrix, int rows, int cols, int cols1, float *vectr, float *tempvec);
 
-float scalarVec(float *vect, float a, int rows1);
+float scalarVec(float *vect, float a, int rows1, float *temp);
 
-float vecAdd(float *vect, float *vect1, int rows1);
+float vecAdd(float *vect, float *vect1, int rows1, float *temp);
 
-float vecSub(float *vect, float *vect1, int rows1);
+float vecSub(float *vect, float *vect1, int rows1, float *temp);
 
 void printer(float *vect, int rows1);
 
@@ -44,41 +44,52 @@ int main(void)
 	/*initial guess , residual, and arbitary vectors of cg method*/
 	float *vectorX;
 
+	float *new_vectorX;
+
 	float *vectorR;
 
+	float *new_vectorR;
+
 	float *vectorP;
+
+	float *new_vectorP;
 
 	float *tempvec;
 
 	float *tempscalarvec;
 
 	float *tempmatvec;
+
+	float *new;
 	
 	
 	float alpha;
 
-    	float beta;
+    float beta;
 
-    	float rho;
-    	float store;
+    float rho;
 
-    	float tempstore1;
+    float store;
+
+    float tempstore;
+
+    float tempstore1;
+
+    float temp_beta;
+
     	
     	
-    	float normb;
+    float normb;
 
 
 	/* rows and matrix columns variables*/
-	int rows, cols, rows1,cols1,niter, maxiter;
+	int rows, cols, rows1,cols1,niter, maxiter,i;
 
 	
 
 	maxiter = 3;
 
-	niter = 0;
-
-
-    	
+	niter = 0;	
 
 
 
@@ -93,7 +104,7 @@ int main(void)
 
 	else
 	{
-		printf("Could not open filekkkk\n");
+		printf("Could not open file\n");
 	}
 
 	printf("%d %d %d %d\n", rows, cols, rows1, cols1);
@@ -112,17 +123,23 @@ int main(void)
 
 	vectorb = malloc ((rows1 * cols1)*sizeof(float) );
 
-	vectorX = malloc (rows1*sizeof(float) );
+	vectorX = malloc (rows1 * sizeof(float) );
 
-	vectorR = malloc (rows1 *sizeof(float) );
+	new_vectorX = malloc (rows1 * sizeof(float) );
 
-	vectorP = malloc (rows1*sizeof(float) );
+	vectorR = malloc (rows1 * sizeof(float) );
+
+	new_vectorR = malloc (rows1 * sizeof(float) );
+
+	vectorP = malloc (rows1 * sizeof(float) );
+
+	new_vectorP = malloc (rows1 * sizeof(float) );
 	
-	tempvec = malloc (rows1*sizeof(float) );
+	tempvec = malloc (rows1 * sizeof(float) );
 
-	tempmatvec = malloc (rows1*sizeof(float) );
+	tempmatvec = malloc ((rows1 * cols1)*sizeof(float) );
 	
-	tempscalarvec = malloc (rows1*sizeof(float) );
+	tempscalarvec = malloc (rows1 * sizeof(float) );
 	
 
 	initializeMatrixA(matrixA, rows, cols, reader);
@@ -135,79 +152,140 @@ int main(void)
 	
 	initializeGuessVec(vectorX, rows1,reader);
 
-	printf("i was previously here!!!\n");
 
-	*tempmatvec = matVec(matrixA, rows, cols, vectorX);
-
-	printf("i am currently here!!!\n");
+	
 
 
-	//printer(tempmatvec, rows1);
+	
 
-
-
-	*vectorR = residual(vectorb,tempmatvec,rows1);
-
-	*vectorP = residual(vectorb,tempmatvec,rows1);
+	matVec(matrixA, rows, cols, cols1, vectorX, tempmatvec);
 
 	
 
 	
+	//printf("Ap prod is %f %f\n", tempmatvec[0], tempmatvec[1]);
+	
 
-	normb = vecNorm(vectorb,rows1);
+
+
+	residual(vectorb,tempmatvec,rows1, vectorR);
+
+	printf("Ap prod is %f %f\n", vectorR[0], vectorR[1]);
+
+	residual(vectorb,tempmatvec,rows1, vectorP);
+
+	
+
+	
 
 	rho = vecVec(vectorR, vectorR, rows1);
 
-	if ( normb < EPSILON)
-	{
-		normb = 1.00;
-	}
+	
 
-	while( vecNorm(vectorR,rows1) / normb > EPSILON )
+	for(i = 0; i < rows1; i++)
 	{
-		*tempvec = matVec(matrixA,rows,cols,vectorP);
+		
+
+		matVec(matrixA,rows,cols,cols1, vectorP, tempvec);
+
+		printf("temVEC is %f %f\n", tempvec[0], tempvec[1]);
 
 		store = vecVec(tempvec, vectorP, rows1);
 
-		alpha = rho/ store ;
+		alpha = rho / store ;
 
-		*tempscalarvec = scalarVec(vectorP, alpha, rows1);
+		printf("alph is %f\n", alpha);
 
-		*vectorX = vecAdd(vectorX, tempscalarvec, rows1);
+		scalarVec(vectorP, alpha, rows1,tempscalarvec);
 
-		*tempscalarvec = scalarVec(tempvec, alpha, rows1);
+		//printf("alphaP is %f %f\n", tempscalarvec[0], tempscalarvec[1]);
 
-		*vectorR = vecSub(vectorR, tempscalarvec, rows1);
+		vecAdd(vectorX, tempscalarvec, rows1, vectorX);
+
+		printf("XX is %f %f\n", vectorX[0], vectorX[1]);
+
+		scalarVec(tempvec, alpha, rows1,tempscalarvec);
+
+		//printf("alphatempvec is %f %f\n", tempscalarvec[0], tempscalarvec[1]);
+
+		//printf("vr111 is %f %f\n", vectorR[0], vectorR[1]);
+
+		vecSub(vectorR, tempscalarvec, rows1, vectorR);
+
+		printf("RR is %f %f\n", vectorR[0], vectorR[1]);
+
+		//tempstore = vecVec(new_vectorR,new_vectorR,rows1 );
+
+		//printf("tempstore is %f\n", tempstore);
+
+		//tempstore1 = vecVec(vectorR,vectorR,rows1 );
 
 		beta = vecVec(vectorR,vectorR,rows1 );
 
-		tempstore1 = beta/rho ;
+		if(sqrt(beta) < EPSILON)
+		{
+			break;
+		}
 
-		*tempscalarvec = scalarVec(vectorP, tempstore1, rows1);
+		temp_beta = beta / rho ;
 
-		*vectorP = vecAdd(vectorR, tempscalarvec, rows1);
+
+
+
+
+		//printf("vr is %f %f\n", vectorR[0], vectorR[1]);
+
+		//beta = tempstore / tempstore1 ;
+
+		printf("beta is %f\n", beta);
+
+		//printf("tempstore1 is %f\n", tempstore1);
+
+		scalarVec(vectorP, temp_beta, rows1, tempscalarvec);
+
+		vecAdd(vectorR, tempscalarvec, rows1, vectorP);
+
+		printf("PP  is %f %f\n", vectorP[0], vectorP[1]);
 
 		rho = beta;
 
-		niter++;
+		printf("rho is %f\n", rho);
 
-		if (niter == maxiter)
-		{
-			break;
+		
 
-		}       
+		//printf("rho is %f\n", rho);
 
+
+		//printf("x before is %f %f\n", vectorX[0], vectorX[1]);
+
+		//*vectorX = *new_vectorX;
+
+		//printf("x after is %f %f\n", vectorX[0], vectorX[1]);
+
+		//*vectorR = *new_vectorR;
+
+		//*vectorP = *new_vectorP; 
+
+		//printf("the vectr r is %f %f\n", vectorR[0], vectorR[1]);
+
+		//printf("norm r is %f\n", vecNorm(vectorR,rows1)) ;    
 
 	
 	}
 
+
+	printer(vectorX, rows1);
+	
 
 
 	free(matrixA);
 	free(vectorb);
 	free(vectorX);
+	free(new_vectorX);
 	free(vectorR);
+	free(new_vectorR);
 	free(vectorP);
+	free(new_vectorP);
 	free(tempvec);
 
 	free(tempscalarvec);
@@ -224,7 +302,7 @@ void initializeMatrixA(float *matrix, int rows, int cols, FILE *reader)
 {
 	int i,j;
 
-	reader = fopen("matrixA.txt", "r");
+	reader = fopen("matrixA1.txt", "r");
 
 	if(reader != NULL)
 	{
@@ -254,7 +332,7 @@ void initializeVectB(float *vect, int rows1, FILE *reader)
 
 	int i;
 
-	reader = fopen("vectorb.txt", "r");
+	reader = fopen("vectorb1.txt", "r");
 
 	if(reader != NULL)
 	{
@@ -281,7 +359,7 @@ void initializeGuessVec(float *vect, int rows1, FILE *reader)
 
 	int i;
 
-	reader = fopen("initialguess.txt", "r");
+	reader = fopen("initialguess1.txt", "r");
 
 	if(reader != NULL)
 	{
@@ -303,45 +381,37 @@ void initializeGuessVec(float *vect, int rows1, FILE *reader)
 
 }
 
-float matVec(float *matrix, int rows, int cols, float *vectr)
+float matVec(float *matrix, int rows, int cols, int cols1, float *vectr, float *tempvec)
 {
 
 	int i,j;
 
-	float *temp;
+	
 
-	temp = malloc (cols*sizeof(float) );
+	
 
-	printf("%d\n", cols);
-
-
-	for(i=0; i<rows; i++)
+	for(i = 0; i < rows; i++)
 	{
-		temp[i] = 0.0;
+		tempvec[i] = 0.0;
 
-		for(j=0; j<cols; j++)
+		for(j = 0; j < cols; j++)
 		{
-			temp[i] += matrix[i*cols+j] * vectr[j];
-		}
+			tempvec[i] = tempvec[i] + matrix[i*cols+j] * vectr[j];
 
+		}
 		
 	}
 
+	//printf("matvec prod is %f %f\n", tempvec[0], tempvec[1]);
 
-	return *temp;
-
-	
+	return *tempvec;	
 
 }
 
 
-float residual(float *vectb, float *vectx, int rows1)
+float residual(float *vectb, float *vectx, int rows1, float *temp)
 {
 	int i;
-
-	float *temp;
-
-	temp = malloc (rows1*sizeof(float) );
 
 	
 	for(i=0; i<rows1; i++)
@@ -353,7 +423,7 @@ float residual(float *vectb, float *vectx, int rows1)
 
 	return *temp;
 
-	free(temp);
+	
 	
 }
 
@@ -361,16 +431,16 @@ float vecNorm(float *vectr, int rows1)
 {
 	int i;
 
-	float temp;
+	float sum;
 
-	temp = 0.0;
+	sum = 0.0;
 
 	for(i=0; i<rows1; i++)
 	{
-		temp += vectr[i] * vectr[i];
+		sum += vectr[i] * vectr[i];
 	}
 
-	return sqrt(temp);
+	return sqrt(sum);
 }
 
 
@@ -378,29 +448,25 @@ float vecVec(float *vect1,float *vect2, int rows1)
 {
 	int i;
 
-	float *temp;
+	float sum;
 
-	temp = malloc (rows1*sizeof(float) );
+	sum = 0.0;
 
-	temp[0] = 0.0;
+	
 
 	for (i=0; i < rows1; i++)
 	{
-		temp[i] += vect1[i] * vect2[i] ;
+		sum += vect1[i] * vect2[i] ;
 	}
 
-	return *temp;
+	return sum;
 
-	free(temp);
+
 }
 
-float vecAdd(float *vect, float *vect1, int rows1)
+float vecAdd(float *vect, float *vect1, int rows1, float *temp)
 {
 	int i;
-
-	float *temp;
-
-	temp = malloc (rows1*sizeof(float) );
 
 	for (i=0; i < rows1; i++)
 	{
@@ -409,17 +475,15 @@ float vecAdd(float *vect, float *vect1, int rows1)
 
 	return *temp;
 
-	free(temp);
+	
 
 }
 
-float vecSub(float *vect, float *vect1, int rows1)
+float vecSub(float *vect, float *vect1, int rows1, float *temp)
 {
 	int i;
 
-	float *temp;
-
-	temp = malloc (rows1*sizeof(float) );
+	
 
 	for (i=0; i < rows1; i++)
 	{
@@ -428,17 +492,14 @@ float vecSub(float *vect, float *vect1, int rows1)
 
 	return *temp;
 
-	free(temp);
+	
 
 }
 
 
-float scalarVec(float *vect, float a, int rows1)
+float scalarVec(float *vect, float a, int rows1, float *temp)
 {
 	int i;
-	float *temp;
-
-	temp = malloc (rows1*sizeof(float) );
 
 	for(i=0; i<rows1; i++)
 	{
@@ -447,7 +508,6 @@ float scalarVec(float *vect, float a, int rows1)
 
 	return *temp;
 
-	free(temp);
 
 }
 
