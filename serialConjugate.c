@@ -170,7 +170,7 @@ int main(void)
 
 	residual(vectorb,tempmatvec,rows1, vectorR);
 
-	printf("Ap prod is %f %f\n", vectorR[0], vectorR[1]);
+	//printf("Ap prod is %f %f\n", vectorR[0], vectorR[1]);
 
 	residual(vectorb,tempmatvec,rows1, vectorP);
 
@@ -188,9 +188,11 @@ int main(void)
 
 		matVec(matrixA,rows,cols,cols1, vectorP, tempvec);
 
-		printf("temVEC is %f %f\n", tempvec[0], tempvec[1]);
+		//printf("temVEC is %f %f %f %f\n", tempvec[0], tempvec[1], tempvec[2], tempvec[3]);
 
 		store = vecVec(tempvec, vectorP, rows1);
+
+		//printf("this is store %f\n",store);
 
 		alpha = rho / store ;
 
@@ -202,7 +204,7 @@ int main(void)
 
 		vecAdd(vectorX, tempscalarvec, rows1, vectorX);
 
-		printf("XX is %f %f\n", vectorX[0], vectorX[1]);
+		//printf("XX is %f %f\n", vectorX[0], vectorX[1]);
 
 		scalarVec(tempvec, alpha, rows1,tempscalarvec);
 
@@ -212,7 +214,7 @@ int main(void)
 
 		vecSub(vectorR, tempscalarvec, rows1, vectorR);
 
-		printf("RR is %f %f\n", vectorR[0], vectorR[1]);
+		//printf("RR is %f %f\n", vectorR[0], vectorR[1]);
 
 		//tempstore = vecVec(new_vectorR,new_vectorR,rows1 );
 
@@ -237,7 +239,7 @@ int main(void)
 
 		//beta = tempstore / tempstore1 ;
 
-		printf("beta is %f\n", beta);
+		//printf("beta is %f\n", beta);
 
 		//printf("tempstore1 is %f\n", tempstore1);
 
@@ -245,11 +247,11 @@ int main(void)
 
 		vecAdd(vectorR, tempscalarvec, rows1, vectorP);
 
-		printf("PP  is %f %f\n", vectorP[0], vectorP[1]);
+		//printf("PP  is %f %f\n", vectorP[0], vectorP[1]);
 
 		rho = beta;
 
-		printf("rho is %f\n", rho);
+		//printf("rho is %f\n", rho);
 
 		
 
@@ -359,7 +361,7 @@ void initializeGuessVec(float *vect, int rows1, FILE *reader)
 
 	int i;
 
-	reader = fopen("initialguess1.txt", "r");
+	reader = fopen("X0.txt", "r");
 
 	if(reader != NULL)
 	{
