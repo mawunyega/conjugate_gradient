@@ -2,12 +2,13 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <mpi.h>
 
 #define EPSILON 1.0e-6
 #define MAX_ITERATION 10
-#define rows 4
-#define cols 4
+#define rows 256
+#define cols 256
 
 
 // add time functions !!!!!!!
@@ -34,6 +35,8 @@ void printer(float vect[], int rows1, int col);
 int main(int argc, char* argv[])
 {	
 
+ clock_t t;
+
 	FILE *reader;
 
 	FILE *reader1;
@@ -51,19 +54,26 @@ int main(int argc, char* argv[])
 	float *local_vectorX;
 
 	float *local_vectorB;
+	
+	double start_time, finish_time,clock_time_taken;
+	
+
+
 
 
 	int myrank, p, local_row, col,i;
 
 	col = 1;
 
-	char filename[] ="m.txt";
+	char filename[] ="matrixA_256X256.txt";
 
-	char filename1[] ="b.txt";
+	char filename1[] ="vectorb_256X1.txt";
 
-	char filename2[] ="x.txt";
+	char filename2[] ="X0_256X1.txt";
 
 
+	
+	
 	MPI_Status status;
 
 	MPI_Init(&argc, &argv);
@@ -71,9 +81,17 @@ int main(int argc, char* argv[])
 	MPI_Comm_size(MPI_COMM_WORLD, &p);
 
     MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-
+    
+    MPI_Barrier(MPI_COMM_WORLD);
+    
+    start_time = MPI_Wtime();
+    
+    t = clock();
+	
 
     local_row = rows / p; // here must be changed to a cyclic data distribution
+    
+    //printf("my rows are %d\n", local_row);
 
 
 
@@ -144,6 +162,8 @@ int main(int argc, char* argv[])
 	//broadcast x0 to every processor
 
     MPI_Bcast(local_vectorX,rows*col,MPI_FLOAT,0,MPI_COMM_WORLD);
+    
+    
 
 
     //spilt matrix A
@@ -153,32 +173,22 @@ int main(int argc, char* argv[])
 
     MPI_Scatter(vectorB,local_row,MPI_FLOAT,local_vectorB,local_row, MPI_FLOAT,0,MPI_COMM_WORLD);
 
-   
-    /*if(myrank == 0)
-    {
-    	printer(local_vectorX, rows, col);
-    }
-
-
-     // print results;
-  	if(myrank == 0)
-    {
-    	printer(local_matrixA, local_row, cols);
-    }
-
-    if(myrank == 0)
-    {
-    	printer(local_vectorB, local_row, col);
-    }*/
   
-
-    //call void conjugate
 
     conjugrad(local_matrixA, local_vectorB, local_vectorX, local_row, myrank);
 
-
-   
-
+	MPI_Barrier(MPI_COMM_WORLD);
+  	finish_time = MPI_Wtime();
+  	t = clock() - t;
+  	clock_time_taken = ((double)t)/CLOCKS_PER_SEC;
+   if(myrank == 0)
+   {
+   	printf("matrix size : %d\n", rows*cols );
+   	printf("average mpi execution time in seconds: %f\n", (finish_time - start_time) );
+   	printf("average clock execution time in seconds: %lu\n", clock_time_taken );
+   	
+   }
+    
    
     if(myrank == 0)
     {
@@ -335,7 +345,7 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
 
 	float *temp_p;
 
-	float *solution_X;
+	
 
 	float rsold, temp_rsold, temp_alpha, alpha, temp_beta,beta, store;
 
@@ -378,7 +388,7 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
     }
 
 
-    if((vectorR = malloc (rows*sizeof(float))) == NULL)
+    if((vectorR = malloc ((rows*cols)*sizeof(float))) == NULL)
     {
     	printf("can't allocate memory for vector R\n");
 
@@ -386,7 +396,7 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
     }
 
 
-    if((temp_x = malloc (local_row*sizeof(float))) == NULL)
+    if((temp_x = malloc (rows*sizeof(float))) == NULL)
     {
     	printf("can't allocate memory for temp local vector X\n");
 
@@ -407,21 +417,10 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
     	MPI_Abort(MPI_COMM_WORLD,1);
     }
 
-    if(myrank == 0)
-    {
-    	
-
-    	if((solution_X = malloc (rows*sizeof(float))) == NULL)
-    	{
-    		printf("can't allocate memory for solution vector\n");
-
-    		MPI_Abort(MPI_COMM_WORLD,1);
-    	}
-
-
-    }
 
 	matVec(local_matvec,local_matrixA, local_row, local_vectorX);
+	
+	
 
 
 	residual(local_vectorR, local_vectorB, local_row, local_matvec);
@@ -471,8 +470,7 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
 
 			//printf("result temp_alpha is %f \n", temp_alpha);
 
-
-			//printf("result alpha is %f \n", alpha);
+			 
 
 			scalarVec(temp_x, vectorP, alpha, rows);
 
@@ -514,23 +512,16 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
 			
 
 			rsold = beta;
+			
+			//printf("hello\n");
 
 
 	}
+	
+	 if(myrank == 1)  
+		printer(local_vectorX, rows, 1);
 
-
-	//MPI_Gather(local_vectorX, local_row, MPI_FLOAT,solution_X, local_row, MPI_FLOAT,0,MPI_COMM_WORLD);
-
-
-	if(myrank == 0)
-    {
-    	printer(local_vectorX, rows, 1);
-
-    	free(solution_X);
-    }
-
-    			
-    
+    			 
 
 
 	free(local_matvec);
