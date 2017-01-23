@@ -57,11 +57,11 @@ int main(int argc, char* argv[])
 
 	col = 1;
 
-	char filename[] ="matrixA1.txt";
+	char filename[] ="m.txt";
 
-	char filename1[] ="vectorb1.txt";
+	char filename1[] ="b.txt";
 
-	char filename2[] ="X0.txt";
+	char filename2[] ="x.txt";
 
 
 	MPI_Status status;
@@ -327,6 +327,8 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
 
 	float *vectorP;
 
+	float *vectorR;
+
 	float *temp_x;
 
 	float *temp_r;
@@ -371,6 +373,14 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
     if((vectorP = malloc (rows*sizeof(float))) == NULL)
     {
     	printf("can't allocate memory for vector P\n");
+
+    	MPI_Abort(MPI_COMM_WORLD,1);
+    }
+
+
+    if((vectorR = malloc (rows*sizeof(float))) == NULL)
+    {
+    	printf("can't allocate memory for vector R\n");
 
     	MPI_Abort(MPI_COMM_WORLD,1);
     }
@@ -444,7 +454,7 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
 			matVec(local_matvec,local_matrixA, local_row, vectorP); 
 
 			
-    		printer(local_matvec, local_row, 1);
+    		//printer(local_matvec, local_row, 1);
   
 
 			//alpha = rsold / (p' *ap)
@@ -462,18 +472,25 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
 			//printf("result temp_alpha is %f \n", temp_alpha);
 
 
-			printf("result alpha is %f \n", alpha);
+			//printf("result alpha is %f \n", alpha);
 
-			scalarVec(temp_x, local_vectorP, alpha, local_row);
+			scalarVec(temp_x, vectorP, alpha, rows);
 
-			vecAdd(local_vectorX, local_vectorX, temp_x, local_row);
-
+			vecAdd(local_vectorX, local_vectorX, temp_x, rows);
+			//if(myrank == 0)
+				//printer(local_vectorX, rows,1);
+			
 
 
 			scalarVec(temp_r, local_matvec, alpha, local_row);
 
 			vecSub(local_vectorR, local_vectorR, temp_r, local_row);
 
+			// everything fine till here
+
+			
+
+			//MPI_Allgather(local_vectorR, local_row, MPI_FLOAT, vectorR , local_row, MPI_FLOAT,MPI_COMM_WORLD);
 
 			temp_beta = vecVec(local_vectorR, local_vectorR,  local_row);
 
@@ -488,9 +505,13 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
 
 			store = beta / rsold;
 
+			//printf("result beta is %f \n", store);
+
 			scalarVec(temp_p, local_vectorP, store, local_row);
 
 			vecAdd(local_vectorP, local_vectorR, temp_p, local_row);
+			
+			
 
 			rsold = beta;
 
@@ -498,12 +519,12 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
 	}
 
 
-	MPI_Gather(local_vectorX, local_row, MPI_FLOAT,solution_X, local_row, MPI_FLOAT,0,MPI_COMM_WORLD);
+	//MPI_Gather(local_vectorX, local_row, MPI_FLOAT,solution_X, local_row, MPI_FLOAT,0,MPI_COMM_WORLD);
 
 
 	if(myrank == 0)
     {
-    	printer(solution_X, rows, 1);
+    	printer(local_vectorX, rows, 1);
 
     	free(solution_X);
     }
@@ -519,6 +540,8 @@ void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[]
 	free(local_vectorP);
 
 	free(vectorP);
+
+	free(vectorR);
 
 	free(temp_x);
 
@@ -541,7 +564,7 @@ void printer(float vect[], int rows1, int col)
 	{
 		for(j=0; j < col; j++)
 		{
-			printf("%.2f   ", vect[i*col+j]);
+			printf("%f   ", vect[i*col+j]);
 
 			if(j == (col - 1)) 
 				printf("\n");
