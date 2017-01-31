@@ -12,8 +12,8 @@
 #define COL 1
 
 
-void initialize(float* vector, 
-  char* filename, 
+void initialize(float vector[], 
+  char filename[], 
 	int colunm_num);
 
 void matVec(float local_matvec[], 
@@ -60,6 +60,7 @@ FILE  *reader,
 float *matrixA,
       *vectorB,
       *local_matrixA,
+      *temp,
       *local_vectorX,
       *local_vectorB;
 double start_time, 
@@ -67,7 +68,9 @@ double start_time,
        clock_time_taken;
 int myrank, 
     procsnum,
-    i, 
+    i,
+    j,
+    dest, 
     local_row;
 MPI_Status status;
 MPI_Init(&argc, &argv);
@@ -82,10 +85,15 @@ if((local_matrixA = malloc((local_row*COLS)*sizeof(float)))==NULL) /////check th
 printf("can't allocate memory for local matrix\n");
     	MPI_Abort(MPI_COMM_WORLD,1);
 }
+if((temp = malloc((local_row*COLS)*sizeof(float)))==NULL)
+{
+  printf("can't allocate memory for local matrix\n");
+  MPI_Abort(MPI_COMM_WORLD,1);
+}
 if((local_vectorX = malloc((ROWS*COL)*sizeof(float)))==NULL)
 {
-	printf("can't allocate memory for vector X\n");
-	MPI_Abort(MPI_COMM_WORLD,1);
+  printf("can't allocate memory for vector X\n");
+  MPI_Abort(MPI_COMM_WORLD,1);
 }
 if((local_vectorB = malloc ((local_row*COL)*sizeof(float))) == NULL)
 {
@@ -99,10 +107,10 @@ if(myrank == 0)
     		printf("can't allocate memory for matrix\n");
     		MPI_Abort(MPI_COMM_WORLD,1);
     	}
-    	else
+    	/*else
     	{
     		initialize(matrixA, argv[1], COLS);
-    	}
+    	}*/
 }
 if(myrank == 0)
 {
@@ -117,8 +125,50 @@ if(myrank == 0)
     		initialize(local_vectorX, argv[3], COL);
     	}
 }
-MPI_Bcast(local_vectorX,ROWS*COL,MPI_FLOAT,0,MPI_COMM_WORLD);
-MPI_Scatter(matrixA,local_row*COLS,MPI_FLOAT,local_matrixA,local_row*COLS, MPI_FLOAT,0,MPI_COMM_WORLD);
+//MPI_Bcast(local_vectorX,ROWS*COL,MPI_FLOAT,0,MPI_COMM_WORLD);
+
+if(myrank == 0)
+{
+	for(i = 1; i < procsnum; ++i)
+	{
+		MPI_Send(local_vectorX, ROWS*COL,MPI_FLOAT,i,0, MPI_COMM_WORLD);
+	}
+}else
+{
+	MPI_Recv(local_vectorX, ROWS*COL,MPI_FLOAT,0,0, MPI_COMM_WORLD, &status);
+}
+//MPI_Scatter(matrixA,local_row*COLS,MPI_FLOAT,local_matrixA,local_row*COLS, MPI_FLOAT,0,MPI_COMM_WORLD);
+if(myrank == 0)
+{
+  reader = fopen(argv[1], "r");
+  if (reader != NULL)
+  {
+    for(i = 0; i < local_row; ++i)
+    {
+       for(j=0; j < COLS; ++j)
+       {
+         scanf("%f%*c", &local_matrixA[i*COLS+j]);
+       }
+    }
+    
+    for (dest = 1; dest < procsnum; ++dest) 
+    {
+      for (i = 0; i < local_row; ++i)
+      {
+        for(j=0; j < COLS; ++j)
+        {
+          scanf("%f%*c", &temp[i*COLS+j]);
+        }
+      }
+      MPI_Send(temp,local_row*COLS, MPI_FLOAT, dest, 0, MPI_COMM_WORLD);  
+    }
+    fclose(reader);
+  }else
+      printf("Could not open matrix file. \n");
+ }else 
+   {
+      MPI_Recv(local_matrixA, local_row*COLS, MPI_FLOAT, 0, 0, MPI_COMM_WORLD, &status);
+   }
 MPI_Scatter(vectorB,local_row,MPI_FLOAT,local_vectorB,local_row, MPI_FLOAT,0,MPI_COMM_WORLD);
 conjugrad(local_matrixA, local_vectorB, local_vectorX, local_row, myrank);
 MPI_Barrier(MPI_COMM_WORLD);
@@ -137,12 +187,13 @@ if(myrank == 0)
     	free(vectorB);
 }
 free(local_matrixA);
+free(temp);
 free(local_vectorX);
 free(local_vectorB);
 MPI_Finalize();
 return 0;
 }
-void initialize(float* vector, char* filename, int col_num)
+void initialize(float vector[], char filename[], int col_num)
 {
 FILE *reader;
 int i,j;
