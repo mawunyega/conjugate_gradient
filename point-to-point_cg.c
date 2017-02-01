@@ -7,8 +7,8 @@
 
 #define EPSILON 1.0e-6
 #define MAX_ITERATION 10
-#define ROWS 1024
-#define COLS 1024
+#define ROWS 4
+#define COLS 4
 #define COL 1
 
 
@@ -50,6 +50,9 @@ void conjugrad(float local_matrixA[],
 	float local_vectorX[], 
 	int local_row, 
 	int myrank);
+void scatterRowwise(float *local_matrix, 
+  char *filename, int local_row, 
+  int myrank, int procsnum, int col);
 void printer(float vect[], int rows1, int colunm_num);
 int main(int argc, char* argv[])
 {	
@@ -147,7 +150,7 @@ if(myrank == 0)
     {
        for(j=0; j < COLS; ++j)
        {
-         scanf("%f%*c", &local_matrixA[i*COLS+j]);
+         fscanf(reader,"%f%*c", &local_matrixA[i*COLS+j]);
        }
     }
     
@@ -157,7 +160,7 @@ if(myrank == 0)
       {
         for(j=0; j < COLS; ++j)
         {
-          scanf("%f%*c", &temp[i*COLS+j]);
+          fscanf(reader,"%f%*c", &temp[i*COLS+j]);
         }
       }
       MPI_Send(temp,local_row*COLS, MPI_FLOAT, dest, 0, MPI_COMM_WORLD);  
@@ -215,6 +218,52 @@ else
 {	
 	printf("Could not open file\n");
 }	
+}
+void scatterRowwise(float *local_matrix, char *filename, int local_row, int myrank, int procsnum, int col)
+{
+  FILE *reader;
+  int dest,i,j;
+  float *temp;
+  if((temp = malloc((local_row*col)*sizeof(float)))==NULL)
+  {
+    printf("can't allocate memory for temp local matrix\n");
+    MPI_Abort(MPI_COMM_WORLD,1);
+  }
+  MPI_Status status;
+  if(myrank == 0)
+  {
+  reader = fopen(filename, "r");
+  if (reader != NULL)
+  {
+    for(i = 0; i < local_row; ++i)
+    {
+       for(j=0; j < col; ++j)
+       {
+         fscanf(reader,"%f%*c", &local_matrix[i*col+j]);
+       }
+    }
+    
+    for (dest = 1; dest < procsnum; ++dest) 
+    {
+      for (i = 0; i < local_row; ++i)
+      {
+        for(j=0; j < col; ++j)
+        {
+          fscanf(reader,"%f%*c", &temp[i*col+j]);
+        }
+      }
+      MPI_Send(temp,local_row*col, MPI_FLOAT, dest, 0, MPI_COMM_WORLD);  
+    }
+    fclose(reader);
+  }else
+      printf("Could not open matrix file. \n");
+ }else 
+   {
+      MPI_Recv(local_matrix, local_row*col, MPI_FLOAT, 0, 1, MPI_COMM_WORLD, &status);
+   }
+   
+   
+free(temp);
 }
 void matVec(float local_matvec[], float local_matrixA[], int local_row, float local_vectorX[])
 {
