@@ -48,12 +48,14 @@ void conjugrad(float local_matrixA[],
   float local_vectorB[],
   float local_vectorX[], 
   int local_row, 
-  int myrank);
+  int myrank, int procsnum);
 void scatterRowwise(float *local_matrix, 
   char *filename, int local_row, int myrank, 
   int procsnum, int col);
 void broadcastVector(float *local_vectorX,
     int myrank, int procsnum, int cnt);
+float allSum(int myrank,int procsnum, float temp_rsold, float rsold);
+void allGather(float *vect, float *vect1,int local_row,int myrank,int procsnum);
 void printer(float vect[], int rows1, int colunm_num);
 int main(int argc, char* argv[])
 { 
@@ -128,10 +130,17 @@ scatterRowwise(local_matrixA, argv[1], local_row, myrank, procsnum, COLS);
 
 scatterRowwise(local_vectorB, argv[2], local_row, myrank, procsnum, COL); 
 
-if(myrank == 0)
+conjugrad(local_matrixA, local_vectorB, local_vectorX, local_row, myrank, procsnum);
+MPI_Barrier(MPI_COMM_WORLD);
+finish_time = MPI_Wtime();
+t = clock() - t;
+clock_time_taken = ((double)t)/CLOCKS_PER_SEC; 
+
+
+/*if(myrank == 0)
 {
   printer(local_matrixA,local_row,COLS );
-}
+}*/
 
 if(myrank == 0)
 {
@@ -139,11 +148,7 @@ if(myrank == 0)
     printf("average mpi execution time in seconds: %f\n", (finish_time - start_time) );
     printf("average clock execution time in seconds: %f\n", clock_time_taken );   
 }
-if(myrank == 0)
-{
-      free(matrixA);
-      free(vectorB);
-}
+
 free(local_matrixA);
 free(temp);
 free(local_vectorX);
@@ -289,22 +294,89 @@ for (i=0; i < local_row; i++)
   vect[i] = vect1[i] - vect2[i] ;
 } 
 }
-void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[], int local_row, int myrank)
+float allSum(int myrank,int procsnum, float temp_rsold, float rsold)
+{
+  int dest, cnt;
+  cnt = 1;
+  MPI_Status status;
+  if(myrank == 0)
+  {
+    rsold = temp_rsold;
+    for(dest = 1; dest < procsnum; ++dest)
+    {
+      MPI_Recv(&temp_rsold,1,MPI_FLOAT,dest,3,MPI_COMM_WORLD,&status);
+      rsold += temp_rsold;
+    }
+
+  }else
+    {
+      MPI_Send(&temp_rsold,1,MPI_FLOAT,0,3,MPI_COMM_WORLD);
+    }
+
+    
+  return rsold;
+  
+}
+void allGather(float *vect, float *vect1,int local_row,int myrank,int procsnum)
+{
+  int dest,i,index, rank;
+
+  float *temp_localP;
+
+  if((temp_localP = malloc ((local_row*COL)*sizeof(float))) == NULL)
+  {
+    printf("can't allocate memory for local vector for P\n");
+    MPI_Abort(MPI_COMM_WORLD,1);
+  }
+
+  index = local_row;
+
+  MPI_Status status;
+
+  if(myrank == 0)
+  {
+    for(i=0; i < local_row; ++i)
+    {
+      vect[i] = vect1[i];
+    }
+    for(dest = 1; dest < procsnum; ++dest)
+    {
+      MPI_Recv(temp_localP, local_row, MPI_FLOAT, dest, 4, MPI_COMM_WORLD, &status);
+      for(i = 0; i < local_row; ++i)
+      {
+        vect[index] = temp_localP[i];
+        index++;
+      }
+      //printf("i got %f and %f from %d\n",local_vectorP[0], local_vectorP[1], dest );
+    }
+  }
+  else
+  {
+    MPI_Send(vect1,local_row,MPI_FLOAT,0,4,MPI_COMM_WORLD);
+  }
+free(temp_localP);
+   
+}
+void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[], int local_row, int myrank, int procsnum)
 {
 float *local_matvec,
       *local_vectorR,
       *local_vectorP,
+      *temp_localP,
       *vectorP,
       *vectorR,
       *temp_x,
       *temp_r,
       *temp_p,
       rsold,
+      rsold1,
       temp_rsold,
       temp_alpha,
       alpha,
+      alpha1,
       temp_beta,
       beta,
+      beta1,
       store;
 int   i,j,k;
 MPI_Status status;
@@ -348,24 +420,86 @@ if((temp_p = malloc ((local_row*COL)*sizeof(float))) == NULL)
   printf("can't allocate memory for temp local vector P\n");
       MPI_Abort(MPI_COMM_WORLD,1);
 }
+
+
+
+
 matVec(local_matvec,local_matrixA, local_row, local_vectorX);
 residual(local_vectorR, local_vectorB, local_row, local_matvec);
+
 residual(local_vectorP, local_vectorB, local_row, local_matvec);
+
 temp_rsold = vecVec(local_vectorR, local_vectorR,  local_row);
-MPI_Allreduce(&temp_rsold,&rsold,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
+
+//MPI_Allreduce(&temp_rsold,&rsold,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
+
+rsold = allSum(myrank,procsnum, temp_rsold,rsold1);
+
+broadcastVector(&rsold, myrank, procsnum, 1);
+
+
 for(k=0; k < ROWS; k++)
 {
-  MPI_Allgather(local_vectorP, local_row, MPI_FLOAT, vectorP , local_row, MPI_FLOAT,MPI_COMM_WORLD);
-  matVec(local_matvec,local_matrixA, local_row, vectorP); 
+  //printf("result rsold is %f \n", rsold); 
+  //MPI_Allgather(local_vectorP, local_row, MPI_FLOAT, vectorP , local_row, MPI_FLOAT,MPI_COMM_WORLD);
+
+  //printf("this is %d and my p are %f and %f \n", myrank, local_vectorP[0],local_vectorP[1]);
+
+  allGather(vectorP, local_vectorP,local_row,myrank,procsnum);
+
+  broadcastVector(vectorP, myrank, procsnum, ROWS);
+
+  /*if(myrank == 0)
+  {
+    memcpy(local_vectorP, temp_localP, local_row);
+  }*/
+
+ //printf("this is %d and my p after are %f and %f \n", myrank, local_vectorP[0],local_vectorP[1]);
+
+  /*if(myrank == 1)
+  {
+    printer(vectorP,ROWS,1);
+  }*/
+  
+  matVec(local_matvec,local_matrixA, local_row, vectorP);
+
+  //printf("this is %d and my matvec are %f and %f \n", myrank, local_matvec[0],local_matvec[1]);
+
+  //printf("this is %d and my p are %f and %f \n", myrank, local_vectorP[0],local_vectorP[1]);
   temp_alpha = vecVec(local_vectorP, local_matvec,  local_row);
-  MPI_Allreduce(&temp_alpha,&alpha,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
-  alpha = rsold / alpha;     
+
+  //printf("result temp_alpha is %f \n", temp_alpha); 
+
+  //printf("i am %d and i have result b4 is %f \n", myrank, temp_alpha);
+
+  //MPI_Allreduce(&temp_alpha,&alpha,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
+  alpha = allSum(myrank,procsnum, temp_alpha,alpha1);
+
+  broadcastVector(&alpha, myrank, procsnum, 1);
+
+  //printf("result alpha b4 is %f \n", alpha); 
+
+  alpha = rsold / alpha;
+
+  //printf("result alpha  is %f \n", alpha); 
+
   scalarVec(temp_x, vectorP, alpha, ROWS);
   vecAdd(local_vectorX, local_vectorX, temp_x, ROWS);
+
+//printf("this is %d and my x are %f and %f \n", myrank, local_vectorX[0],local_vectorX[1]);
+
   scalarVec(temp_r, local_matvec, alpha, local_row);
   vecSub(local_vectorR, local_vectorR, temp_r, local_row);
   temp_beta = vecVec(local_vectorR, local_vectorR,  local_row);
-  MPI_Allreduce(&temp_beta,&beta,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
+  //MPI_Allreduce(&temp_beta,&beta,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
+
+  //printf("result temp_beta  is %f \n", temp_beta); 
+
+  beta = allSum(myrank,procsnum, temp_beta,beta1);
+
+  broadcastVector(&beta, myrank, procsnum, 1);
+
+  printf("result beta  is %f \n", beta); 
   if(sqrt(beta) < EPSILON)
   {
     break;
@@ -374,16 +508,25 @@ for(k=0; k < ROWS; k++)
   scalarVec(temp_p, local_vectorP, store, local_row);
   vecAdd(local_vectorP, local_vectorR, temp_p, local_row);
   rsold = beta;
-}       
+} 
+
+if(myrank == 0)
+  {
+      printer(local_vectorX, ROWS, 1);
+    
+  }      
 free(local_matvec);
 free(local_vectorR);
 free(local_vectorP);
+
 free(vectorP);
 free(vectorR);
 free(temp_x);
 free(temp_r);
 free(temp_p);
 }
+
+
 void printer(float vect[], int rows1, int colunm_num)
 {
   int i, j;
