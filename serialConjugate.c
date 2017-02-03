@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define EPSILON 1.0e-7
 
@@ -19,7 +20,7 @@ float vecNorm(float *vectr, int rows1);
 
 float vecVec(float *vect1,float *vect2, int rows1);
 
-float matVec(float *matrix, int rows, int cols, int cols1, float *vectr, float *tempvec);
+float matVec(float *matrix, int rows, int cols, float *vectr, float *tempvec);
 
 float scalarVec(float *vect, float a, int rows1, float *temp);
 
@@ -34,6 +35,8 @@ int main(void)
 
 
 	FILE *reader;	
+	
+	time_t start,end;
 
 	/* vectors to store matrices for computations*/
 	float *matrixA;
@@ -58,40 +61,25 @@ int main(void)
 
 	float *tempscalarvec;
 
-	float *tempmatvec;
-
-	float *new;
-	
+	float *tempmatvec;	
 	
 	float alpha;
 
-    float beta;
+    	float beta;
 
-    float rho;
+    	float rho;
 
-    float store;
+    	float store;
 
-    float tempstore;
+    	float temp_beta;
 
-    float tempstore1;
-
-    float temp_beta;
-
-    	
-    	
-    float normb;
+    
 
 
 	/* rows and matrix columns variables*/
-	int rows, cols, rows1,cols1,niter, maxiter,i;
-
+	int rows, cols, rows1,cols1,i;
 	
-
-	maxiter = 3;
-
-	niter = 0;	
-
-
+	start = clock();
 
 	reader = fopen("dimensions.txt", "r");
 
@@ -144,30 +132,16 @@ int main(void)
 
 	initializeMatrixA(matrixA, rows, cols, reader);
 
-
 	
 	initializeVectB(vectorb, rows1, reader);
-
 
 	
 	initializeGuessVec(vectorX, rows1,reader);
 
 
-	
-
-
-	
-
-	matVec(matrixA, rows, cols, cols1, vectorX, tempmatvec);
+	matVec(matrixA, rows, cols, vectorX, tempmatvec);
 
 	
-
-	
-	//printf("Ap prod is %f %f\n", tempmatvec[0], tempmatvec[1]);
-	
-
-
-
 	residual(vectorb,tempmatvec,rows1, vectorR);
 
 	//printf("Ap prod is %f %f\n", vectorR[0], vectorR[1]);
@@ -175,18 +149,14 @@ int main(void)
 	residual(vectorb,tempmatvec,rows1, vectorP);
 
 	
-
-	
-
 	rho = vecVec(vectorR, vectorR, rows1);
-
 	
 
 	for(i = 0; i < rows1; i++)
 	{
 		
 
-		matVec(matrixA,rows,cols,cols1, vectorP, tempvec);
+		matVec(matrixA,rows,cols,vectorP, tempvec);
 
 		//printf("temVEC is %f %f %f %f\n", tempvec[0], tempvec[1], tempvec[2], tempvec[3]);
 
@@ -196,7 +166,7 @@ int main(void)
 
 		alpha = rho / store ;
 
-		printf("alph is %f\n", alpha);
+		//printf("alph is %f\n", alpha);
 
 		scalarVec(vectorP, alpha, rows1,tempscalarvec);
 
@@ -274,6 +244,10 @@ int main(void)
 
 	
 	}
+	
+	end = clock();
+	
+	printf("clock execution time is %f\n",(end - start ) );
 
 
 	printer(vectorX, rows1);
@@ -304,7 +278,7 @@ void initializeMatrixA(float *matrix, int rows, int cols, FILE *reader)
 {
 	int i,j;
 
-	reader = fopen("matrixA1.txt", "r");
+	reader = fopen("matrixA_256X256.txt", "r");
 
 	if(reader != NULL)
 	{
@@ -334,7 +308,7 @@ void initializeVectB(float *vect, int rows1, FILE *reader)
 
 	int i;
 
-	reader = fopen("vectorb1.txt", "r");
+	reader = fopen("vectorb_256X1.txt", "r");
 
 	if(reader != NULL)
 	{
@@ -361,7 +335,7 @@ void initializeGuessVec(float *vect, int rows1, FILE *reader)
 
 	int i;
 
-	reader = fopen("X0.txt", "r");
+	reader = fopen("X0_256X1.txt", "r");
 
 	if(reader != NULL)
 	{
@@ -383,13 +357,10 @@ void initializeGuessVec(float *vect, int rows1, FILE *reader)
 
 }
 
-float matVec(float *matrix, int rows, int cols, int cols1, float *vectr, float *tempvec)
+float matVec(float *matrix, int rows, int cols, float *vectr, float *tempvec)
 {
 
 	int i,j;
-
-	
-
 	
 
 	for(i = 0; i < rows; i++)
