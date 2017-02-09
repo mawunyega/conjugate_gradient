@@ -1,498 +1,276 @@
+/* An MPI Conjugate Gradient Method solution for A*x = b. 
+ * A is a dense NxN known matrix.
+ * x is a dense NX1 unkown vector.
+ * b is a dense NX1 known vector. 
+ * 
+ * Input parameters:matrixA_size.txt, vectorb_size.txt, X0_size.txt 
+ *      
+ * Execute file: first specify ROWS and COLS.
+ * provide input file on command line in order above.
+ *
+ * Compile: mpicc filename.c -o filename -lm 
+ * Run    : mpiexec -np 2 [--hosts host1,host2] filename para1.txt 
+ *   para2.txt para3.txt
+ *
+ * Filename: <serialConjugate.c>
+ * Author  : <Lloyd .M. Dzokoto>
+ * Date    : <09.02.2017>
+ * Version : <1>
+ *
+ */
+ 
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
-#define EPSILON 1.0e-7
+#define EPSILON 1.0e-6                  /* exiting criteria   */                
+#define ROWS 8192                        /* matrix rows        */                   
+#define COLS 8192                        /* matrix columns     */                    
+#define COL 1
 
-
-// change all float to float
-
-void initializeMatrixA(float *matrix, int rows, int cols, FILE *reader);
-
-void initializeVectB(float *vect, int rows1, FILE *reader);
-
-void initializeGuessVec(float *vect, int rows1, FILE *reader);
-
-float residual(float *vectb, float *vectx, int rows1, float *temp);
-
-float vecNorm(float *vectr, int rows1);
-
-float vecVec(float *vect1,float *vect2, int rows1);
-
-float matVec(float *matrix, int rows, int cols, float *vectr, float *tempvec);
-
-float scalarVec(float *vect, float a, int rows1, float *temp);
-
-float vecAdd(float *vect, float *vect1, int rows1, float *temp);
-
-float vecSub(float *vect, float *vect1, int rows1, float *temp);
-
-void printer(float *vect, int rows1);
-
-int main(void)
-{	
-
-
-	FILE *reader;	
-	
-	time_t start,end;
-
-	/* vectors to store matrices for computations*/
-	float *matrixA;
-
-	float *vectorb;
-	
-	
-	/*initial guess , residual, and arbitary vectors of cg method*/
-	float *vectorX;
-
-	float *new_vectorX;
-
-	float *vectorR;
-
-	float *new_vectorR;
-
-	float *vectorP;
-
-	float *new_vectorP;
-
-	float *tempvec;
-
-	float *tempscalarvec;
-
-	float *tempmatvec;	
-	
-	float alpha;
-
-    	float beta;
-
-    	float rho;
-
-    	float store;
-
-    	float temp_beta;
-
+void initialize(float *vector, char *filename, int colunm_num);
+void matVec(float *matvec, float *matrixA, float *vectorX);
+void residual(float *residual, float *vectorB, float *matvec);
+float vecVec(float *vect1,float *vect2);
+void scalarVec(float *scalar_vect, float *vect, float scalar);
+void vecAdd(float *sumvect, float *vect1, float *vect2);
+void vecSub(float *subvect, float *vect1, float *vect2);  
+void conjugrad(float *matrixA,float *vectorB,float *vectorX);
+float* memAllocate(float *vect, int m, int n);
+void printer(float *vect, int rows1, int colunm_num);
+int main(int argc, char* argv[])
+{ 
+  float *matrixA,			/* portion of matrix A   */
+        *vectorX,			/* solution vector X     */
+        *vectorB;			/* portion of vector B   */
+  if(argc != 4)
+  {
+    printf("serialCongugate.c requires four (4) files \n");
+    exit (0);
+  }    
+  if(ROWS != COLS)
+  {
+    printf("%d and %d must be same size\n",ROWS, COLS);
+    exit (0);
+  }
+  printf("Computing cg of matrix size : %d\n", ROWS*COLS );
+  matrixA = NULL;
+  vectorX = NULL;
+  vectorB = NULL;
+  matrixA = memAllocate(matrixA, ROWS, COLS);
+  vectorX = memAllocate(vectorX, ROWS, COL);
+  vectorB = memAllocate(vectorB, ROWS, COL);
+  initialize(matrixA, argv[1], COLS);
+  initialize(vectorB, argv[2], COL);
+  initialize(vectorX, argv[3], COL);
+  conjugrad(matrixA, vectorB, vectorX);
+  free(matrixA);
+  free(vectorX);
+  free(vectorB);  
+  return 0;
+}
+/* memAllocate performs a memory allocation.    
+ */
+float* memAllocate(float *vect, int m, int n)
+{
+  if((vect = malloc ((m*n)*sizeof(float))) == NULL)
+  {
+    printf("can't allocate memory for vector\n");
+    exit (0);
+  }
+  return vect;
+}
+void initialize(float *vector, char *filename, int col_num)
+{
+  FILE *reader;                         /* a file pointer         */
+  int i,j;                              /* looping variables      */
+  reader = fopen(filename, "r");        /* open file for reading  */
+  if(reader != NULL)                    
+  {
+    for(i = 0; i < ROWS; ++i)
+    {
+      for(j = 0; j < col_num; ++j)
+      {
+        fscanf(reader,"%f%*c", &vector[i*col_num+j]);
+      }
+    }
+    fclose(reader);
+  }
+  else
+  { 
+    printf("Could not open file\n");
+  } 
+}
+/* The matvec function requires a matrix and a vector to perform 
+ * Ax. The result is returned to matvec.
+ */  
+void matVec(float *matvec, float *matrixA, float *vectorX)
+{
+  int i,j;
+  for(i = 0; i < ROWS; ++i)
+  {
+    matvec[i] = 0.0;
+    for(j = 0; j < COLS; ++j)
+    {
+      matvec[i] += matrixA[i*COLS+j] * vectorX[j];
+    }
+  } 
+}
+/* The residual function performs b-Ax. 
+ * The result is returned to residual.
+ */ 
+void residual(float *residual, float *vectorB, float *matvec)
+{
+  int i;
+  for(i=0; i < ROWS; ++i)
+  {
+    residual[i] = vectorB[i] - matvec[i];
+  }
+}
+/* scalarVec computes a scalar-vector multiplication. 
+ * The result is stored to scalar_vect.
+ */ 
+void scalarVec(float *scalar_vect, float *vect, float scalar)
+{
+  int i;
+  for(i=0; i < ROWS; ++i)
+  {
+    scalar_vect[i] = vect[i] * scalar;
+  }
+}
+/* vecVec returns the results of a vector-vector multiplication. 
+ */ 
+float vecVec(float *vect1,float *vect2)
+{
+  int i;
+  float sum;
+  sum = 0.0;
+  for (i=0; i < ROWS; ++i)
+  {
+    sum += vect1[i] * vect2[i] ;
+  }
+  return sum;
+}
+/* vecAdd computes a vector-vector addition. 
+ * The result is stored to sumvect.
+ */ 
+void vecAdd(float *sumvect, float *vect1, float *vect2)
+{
+  int i;
+  for (i=0; i < ROWS; ++i)
+  {
+    sumvect[i] = vect1[i] + vect2[i] ;
+  } 
+}
+/* vecSub computes a vector-vector substraction. 
+ * The result is stored to subvect.
+ */ 
+void vecSub(float *subvect, float *vect1, float *vect2)
+{
+  int i;
+  for (i=0; i < ROWS; ++i)
+  {
+    subvect[i] = vect1[i] - vect2[i] ;
+  } 
+}
+/* main function for conjugate gradient method.    
+ */
+void conjugrad(float *matrixA,float *vectorB,float *vectorX)
+{
+  clock_t t;
+  float *matvec,			/* pointer stores Ax       */			
+        *vectorR,			/* residual  vector        */
+        *vectorP,			/* direction vector        */			
+        *temp_x,			/* temp vectorX            */
+        *temp_r,			/* temp vectorR            */
+        *temp_p,			/* temp vectorP            */
+        rsold,				
+        alpha,				/* step length             */
+        beta;				/* new step length         */
+  int   k;				/* loop variable           */
+  matvec = NULL;
+  vectorR = NULL;
+  vectorP = NULL;
+  temp_x = NULL;
+  temp_r = NULL;
+  temp_p = NULL;
+  matvec = memAllocate(matvec, ROWS, COL);
+  vectorR = memAllocate(vectorR, ROWS, COL);
+  vectorP = memAllocate(vectorP, ROWS, COL);
+  temp_x = memAllocate(temp_x, ROWS, COL);
+  temp_r = memAllocate(temp_r, ROWS, COL);	
+  temp_p = memAllocate(temp_p, ROWS, COL);
+  
+   /* start of conjugate gradient execution.    
+   */
+  t = clock();
+  matVec(matvec,matrixA,vectorX);
+  residual(vectorR, vectorB, matvec);
+  residual(vectorP, vectorB, matvec);
+  rsold = vecVec(vectorR, vectorR);
+  for(k=0; k < ROWS; ++k)
+  {
+    matVec(matvec,matrixA,vectorP);
     
-
-
-	/* rows and matrix columns variables*/
-	int rows, cols, rows1,cols1,i;
-	
-	start = clock();
-
-	reader = fopen("dimensions.txt", "r");
-
-	if(reader != NULL)
-	{
-		fscanf(reader," %d %d %d %d\n", &rows, &cols, &rows1, &cols1); 
-
-		fclose(reader);
-	}
-
-	else
-	{
-		printf("Could not open file\n");
-	}
-
-	printf("%d %d %d %d\n", rows, cols, rows1, cols1);
-
-
-	
-	if (cols != rows1)
-	{
-		printf("Matrix and vector dimensions do not match. Terminating program........\n");
-		exit(0);
-
-	}
-
-
-	matrixA = malloc ((rows * cols)*sizeof(float) );
-
-	vectorb = malloc ((rows1 * cols1)*sizeof(float) );
-
-	vectorX = malloc (rows1 * sizeof(float) );
-
-	new_vectorX = malloc (rows1 * sizeof(float) );
-
-	vectorR = malloc (rows1 * sizeof(float) );
-
-	new_vectorR = malloc (rows1 * sizeof(float) );
-
-	vectorP = malloc (rows1 * sizeof(float) );
-
-	new_vectorP = malloc (rows1 * sizeof(float) );
-	
-	tempvec = malloc (rows1 * sizeof(float) );
-
-	tempmatvec = malloc ((rows1 * cols1)*sizeof(float) );
-	
-	tempscalarvec = malloc (rows1 * sizeof(float) );
-	
-
-	initializeMatrixA(matrixA, rows, cols, reader);
-
-	
-	initializeVectB(vectorb, rows1, reader);
-
-	
-	initializeGuessVec(vectorX, rows1,reader);
-
-
-	matVec(matrixA, rows, cols, vectorX, tempmatvec);
-
-	
-	residual(vectorb,tempmatvec,rows1, vectorR);
-
-	//printf("Ap prod is %f %f\n", vectorR[0], vectorR[1]);
-
-	residual(vectorb,tempmatvec,rows1, vectorP);
-
-	
-	rho = vecVec(vectorR, vectorR, rows1);
-	
-
-	for(i = 0; i < rows1; i++)
-	{
-		
-
-		matVec(matrixA,rows,cols,vectorP, tempvec);
-
-		//printf("temVEC is %f %f %f %f\n", tempvec[0], tempvec[1], tempvec[2], tempvec[3]);
-
-		store = vecVec(tempvec, vectorP, rows1);
-
-		//printf("this is store %f\n",store);
-
-		alpha = rho / store ;
-
-		//printf("alph is %f\n", alpha);
-
-		scalarVec(vectorP, alpha, rows1,tempscalarvec);
-
-		//printf("alphaP is %f %f\n", tempscalarvec[0], tempscalarvec[1]);
-
-		vecAdd(vectorX, tempscalarvec, rows1, vectorX);
-
-		//printf("XX is %f %f\n", vectorX[0], vectorX[1]);
-
-		scalarVec(tempvec, alpha, rows1,tempscalarvec);
-
-		//printf("alphatempvec is %f %f\n", tempscalarvec[0], tempscalarvec[1]);
-
-		//printf("vr111 is %f %f\n", vectorR[0], vectorR[1]);
-
-		vecSub(vectorR, tempscalarvec, rows1, vectorR);
-
-		//printf("RR is %f %f\n", vectorR[0], vectorR[1]);
-
-		//tempstore = vecVec(new_vectorR,new_vectorR,rows1 );
-
-		//printf("tempstore is %f\n", tempstore);
-
-		//tempstore1 = vecVec(vectorR,vectorR,rows1 );
-
-		beta = vecVec(vectorR,vectorR,rows1 );
-
-		if(sqrt(beta) < EPSILON)
-		{
-			break;
-		}
-
-		temp_beta = beta / rho ;
-
-
-
-
-
-		//printf("vr is %f %f\n", vectorR[0], vectorR[1]);
-
-		//beta = tempstore / tempstore1 ;
-
-		//printf("beta is %f\n", beta);
-
-		//printf("tempstore1 is %f\n", tempstore1);
-
-		scalarVec(vectorP, temp_beta, rows1, tempscalarvec);
-
-		vecAdd(vectorR, tempscalarvec, rows1, vectorP);
-
-		//printf("PP  is %f %f\n", vectorP[0], vectorP[1]);
-
-		rho = beta;
-
-		//printf("rho is %f\n", rho);
-
-		
-
-		//printf("rho is %f\n", rho);
-
-
-		//printf("x before is %f %f\n", vectorX[0], vectorX[1]);
-
-		//*vectorX = *new_vectorX;
-
-		//printf("x after is %f %f\n", vectorX[0], vectorX[1]);
-
-		//*vectorR = *new_vectorR;
-
-		//*vectorP = *new_vectorP; 
-
-		//printf("the vectr r is %f %f\n", vectorR[0], vectorR[1]);
-
-		//printf("norm r is %f\n", vecNorm(vectorR,rows1)) ;    
-
-	
-	}
-	
-	end = clock();
-	
-	printf("clock execution time is %f\n",(end - start ) );
-
-
-	printer(vectorX, rows1);
-	
-
-
-	free(matrixA);
-	free(vectorb);
-	free(vectorX);
-	free(new_vectorX);
-	free(vectorR);
-	free(new_vectorR);
-	free(vectorP);
-	free(new_vectorP);
-	free(tempvec);
-
-	free(tempscalarvec);
-
-	free(tempmatvec);
-
-
-
-	return 0;
-
+    /* a step length to find an approximate solution    
+     */
+    alpha = vecVec(vectorP, matvec);
+    alpha = rsold / alpha;
+    scalarVec(temp_x, vectorP, alpha);
+    
+    /* compute local_vectorX as approximate solution    
+     */
+    vecAdd(vectorX, vectorX, temp_x);
+    scalarVec(temp_r, matvec, alpha);
+    
+    /* compute local_vectorR as new residual    
+     */
+    vecSub(vectorR, vectorR, temp_r);
+    
+    /* an improved  step length.    
+     */
+    beta = vecVec(vectorR, vectorR);
+    if(sqrt(beta) < EPSILON)
+    {
+      break;
+    }
+    scalarVec(temp_p, vectorP, (beta / rsold));
+    
+    /* compute local_vectorP as new search direction    
+     */
+    vecAdd(vectorP, vectorR, temp_p);
+    rsold = beta;
+  }
+  
+  /* end of conjugate gradient execution.    
+   */
+  t = clock() - t;
+  printf("average clock execution time in seconds: %f\n", 
+    ((double)t) / CLOCKS_PER_SEC );   
+  //printer(vectorX, ROWS, 1);       
+  free(matvec);
+  free(vectorR);
+  free(vectorP);
+  free(temp_x);
+  free(temp_r);
+  free(temp_p);
 }
-
-void initializeMatrixA(float *matrix, int rows, int cols, FILE *reader)
+void printer(float *vect, int rows1, int colunm_num)
 {
-	int i,j;
-
-	reader = fopen("matrixA_256X256.txt", "r");
-
-	if(reader != NULL)
-	{
-		for(i=0; i<rows; i++)
-		{
-			for(j=0; j<cols; j++)
-			{
-				fscanf(reader,"%f%*c",&matrix[i*cols+j]);
-			}
-		}
-
-		fclose(reader);
-
-	}
-
-	else
-	{
-		printf("Could not open file\n");
-	}
-	
-	
-}
-
-
-void initializeVectB(float *vect, int rows1, FILE *reader)
-{
-
-	int i;
-
-	reader = fopen("vectorb_256X1.txt", "r");
-
-	if(reader != NULL)
-	{
-		for(i=0; i<rows1; i++)
-		{
-				fscanf(reader,"%f%*c",&vect[i]);
-			
-		}
-
-		fclose(reader);
-
-	}
-
-	else
-	{
-		printf("Could not open filejjjjj\n");
-	}
-	
-
-}
-
-void initializeGuessVec(float *vect, int rows1, FILE *reader)
-{
-
-	int i;
-
-	reader = fopen("X0_256X1.txt", "r");
-
-	if(reader != NULL)
-	{
-		for(i=0; i<rows1; i++)
-		{
-				fscanf(reader,"%f%*c",&vect[i]);
-			
-		}
-
-		fclose(reader);
-
-	}
-
-	else
-	{
-		printf("Could not open file\n");
-	}
-	
-
-}
-
-float matVec(float *matrix, int rows, int cols, float *vectr, float *tempvec)
-{
-
-	int i,j;
-	
-
-	for(i = 0; i < rows; i++)
-	{
-		tempvec[i] = 0.0;
-
-		for(j = 0; j < cols; j++)
-		{
-			tempvec[i] = tempvec[i] + matrix[i*cols+j] * vectr[j];
-
-		}
-		
-	}
-
-	//printf("matvec prod is %f %f\n", tempvec[0], tempvec[1]);
-
-	return *tempvec;	
-
-}
-
-
-float residual(float *vectb, float *vectx, int rows1, float *temp)
-{
-	int i;
-
-	
-	for(i=0; i<rows1; i++)
-	{
-		
-
-		temp[i] = vectb[i] - vectx[i];
-	}
-
-	return *temp;
-
-	
-	
-}
-
-float vecNorm(float *vectr, int rows1)
-{
-	int i;
-
-	float sum;
-
-	sum = 0.0;
-
-	for(i=0; i<rows1; i++)
-	{
-		sum += vectr[i] * vectr[i];
-	}
-
-	return sqrt(sum);
-}
-
-
-float vecVec(float *vect1,float *vect2, int rows1)
-{
-	int i;
-
-	float sum;
-
-	sum = 0.0;
-
-	
-
-	for (i=0; i < rows1; i++)
-	{
-		sum += vect1[i] * vect2[i] ;
-	}
-
-	return sum;
-
-
-}
-
-float vecAdd(float *vect, float *vect1, int rows1, float *temp)
-{
-	int i;
-
-	for (i=0; i < rows1; i++)
-	{
-		temp[i] = vect[i] + vect1[i] ;
-	}
-
-	return *temp;
-
-	
-
-}
-
-float vecSub(float *vect, float *vect1, int rows1, float *temp)
-{
-	int i;
-
-	
-
-	for (i=0; i < rows1; i++)
-	{
-		temp[i] = vect[i] - vect1[i] ;
-	}
-
-	return *temp;
-
-	
-
-}
-
-
-float scalarVec(float *vect, float a, int rows1, float *temp)
-{
-	int i;
-
-	for(i=0; i<rows1; i++)
-	{
-		temp[i] = vect[i] * a;
-	}
-
-	return *temp;
-
-
-}
-
-void printer(float *vect, int rows1)
-{
-	int i;
-
-	for(i=0; i<rows1; i++)
-	{
-		printf("%f\n", vect[i]);
-
-		
-	}
+  int i, j;
+
+  for(i=0; i < rows1; ++i)
+  {
+    for(j=0; j < colunm_num; ++j)
+    {
+      printf("%f  ", vect[i*colunm_num+j]);
+
+      if(j == (colunm_num - 1)) 
+        printf("\n");
+    }
+    
+  }
 
 }

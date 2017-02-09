@@ -1,3 +1,24 @@
+/* An MPI Conjugate Gradient Method solution for A*x = b. 
+ * A is a dense NxN known matrix.
+ * x is a dense NX1 unkown vector.
+ * b is a dense NX1 known vector. 
+ * 
+ * Input parameters:matrixA_size.txt, vectorb_size.txt, X0_size.txt 
+ *      
+ * Execute file: first specify ROWS and COLS.
+ * provide input file on command line in order above.
+ *
+ * Compile: mpicc filename.c -o filename -lm 
+ * Run    : mpiexec -np 2 [--hosts host1,host2] filename para1.txt 
+ *   para2.txt para3.txt
+ *
+ * Filename: <parallel_cg.c>
+ * Author  : <Lloyd .M. Dzokoto>
+ * Date    : <09.02.2017>
+ * Version : <1>
+ *
+ */
+ 
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
@@ -5,331 +26,337 @@
 #include <time.h>
 #include <mpi.h>
 
-#define EPSILON 1.0e-6
-#define MAX_ITERATION 10
-#define ROWS 1024
-#define COLS 1024
+#define EPSILON 1.0e-6                  /* exiting criteria   */                
+#define ROWS 8192                       /* matrix rows        */                   
+#define COLS 8192                       /* matrix columns     */                    
 #define COL 1
 
-
-void initialize(float* vector, 
-  char* filename, 
-	int colunm_num);
-
-void matVec(float local_matvec[], 
-	float local_matrixA[], 
-	int local_row, 
-	float local_vectorX[]);
-
-void residual(float local_vector[], 
-	float local_vectorB[], 
-	int local_row, 
-	float local_matvec[]);
-
-float vecVec(float vect1[],
-	float vect2[], 
-	int local_row);
-
-void scalarVec(float temp[], 
-	float vect[], 
-	float scalar, 
-	int local_row);
-
-void vecAdd(float vect[], 
-	float vect1[], 
-	float vect2[], 
-	int local_row);
-
-void vecSub(float vect[], 
-	float vect1[], 
-	float vect2[], 
-	int local_row);
-	
-void conjugrad(float local_matrixA[],
-	float local_vectorB[],
-	float local_vectorX[], 
-	int local_row, 
-	int myrank);
-void printer(float vect[], int rows1, int colunm_num);
+void initialize(float *vector, char *filename, int colunm_num);
+void matVec(float *local_matvec, float *local_matrixA,  
+  float *local_vectorX,int local_row);
+void residual(float *local_residual, float *local_vectorB,
+  float *local_matvec, int local_row);
+float vecVec(float *vect1,float *vect2, int local_row);
+void scalarVec(float *scalar_vect, float *vect, 
+  float scalar, int local_row);
+void vecAdd(float *sumvect, float *vect1, 
+  float *vect2, int local_row);
+void vecSub(float *subvect, float *vect1, 
+  float *vect2, int local_row);  
+void conjugrad(float *local_matrixA,float *local_vectorB,
+  float *local_vectorX, int local_row, int myrank, 
+  int procsnum);
+float allSum(int myrank,int procsnum, float temp_rsold, 
+  float rsold);
+float* memAllocate(float *vect, int m, int n);
+void printer(float *vect, int rows1, int colunm_num);
 int main(int argc, char* argv[])
-{	
-clock_t t;
-FILE  *reader, 
-      *reader1, 
-      *reader2;
-float *matrixA,
-      *vectorB,
-      *local_matrixA,
-      *local_vectorX,
-      *local_vectorB;
-double start_time, 
-       finish_time,
-       clock_time_taken;
-int myrank, 
-    procsnum,
-    i, 
-    local_row;
-MPI_Status status;
-MPI_Init(&argc, &argv);
-MPI_Comm_size(MPI_COMM_WORLD, &procsnum);
-MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-MPI_Barrier(MPI_COMM_WORLD);
-start_time = MPI_Wtime();
-t = clock();
-local_row = ROWS / procsnum; 
-if((local_matrixA = malloc((local_row*COLS)*sizeof(float)))==NULL) /////check these!!!!
-{
-printf("can't allocate memory for local matrix\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
+{ 
+  clock_t t;
+  float *local_matrixA,			/* portion of matrix A   */
+        *local_vectorX,			/* solution vector X     */
+        *local_vectorB,			/* portion of vector B   */
+        *matrixA,
+        *vectorB;
+  double start_time, 
+         finish_time,
+         cg_starttime,
+         cg_finishtime,
+         clock_time;
+  int myrank, 
+      procsnum,				/* total process number   */ 
+      local_row;			/* rows of data           */
+  MPI_Status status;
+  local_matrixA = NULL;
+  local_vectorX = NULL;
+  local_vectorB = NULL;
+  matrixA = NULL;
+  vectorB = NULL;
+  t = clock();
+  if (MPI_Init (&argc, &argv) != MPI_SUCCESS) 
+  {
+    printf ("MPI_Init failed.\n");
+    MPI_Abort(MPI_COMM_WORLD,1);
+  }
+  MPI_Comm_size(MPI_COMM_WORLD, &procsnum);
+  MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+  local_row = ROWS / procsnum;
+  if(myrank == 0)
+  {
+    if((ROWS % procsnum) != 0)
+    {
+      printf("%d is not divisible by %d\n",ROWS, procsnum);
+      MPI_Abort(MPI_COMM_WORLD,1);
+    }
+    if(ROWS != COLS)
+    {
+      printf("%d and %d must be same size\n",ROWS, COLS);
+      MPI_Abort(MPI_COMM_WORLD,1);
+    }
+  }
+  local_matrixA = memAllocate(local_matrixA, local_row, COLS);
+  local_vectorX = memAllocate(local_vectorX, ROWS, COL);
+  local_vectorB = memAllocate(local_vectorB, local_row, COL);
+  if(myrank == 0)
+  {
+    printf("Computing cg of matrix size : %d\n", ROWS*COLS );
+    matrixA = memAllocate(matrixA, ROWS, COLS);
+    vectorB = memAllocate(vectorB, ROWS, COL);
+    initialize(matrixA, argv[1], COLS);
+    initialize(vectorB, argv[2], COL);
+    initialize(local_vectorX, argv[3], COL);
+  }
+  MPI_Barrier(MPI_COMM_WORLD);
+  start_time = MPI_Wtime();
+  MPI_Bcast(local_vectorX,ROWS*COL,MPI_FLOAT,0,MPI_COMM_WORLD);
+  MPI_Scatter(matrixA,local_row*COLS,MPI_FLOAT,local_matrixA,
+    local_row*COLS, MPI_FLOAT,0,MPI_COMM_WORLD);
+  MPI_Scatter(vectorB,local_row,MPI_FLOAT,local_vectorB,
+    local_row, MPI_FLOAT,0,MPI_COMM_WORLD);
+  MPI_Barrier(MPI_COMM_WORLD);
+  finish_time = MPI_Wtime(); 
+  conjugrad(local_matrixA, local_vectorB, local_vectorX, 
+    local_row, myrank, procsnum);
+  t = clock() - t;
+  if(myrank == 0)
+  {
+    printf("collective data distribution time in seconds: %f\n", 
+      (finish_time - start_time) );
+    printf("clock execution time in seconds: %f\n", 
+      ((double)t) / CLOCKS_PER_SEC );
+    free(matrixA);
+    free(vectorB);    
+  }
+  free(local_matrixA);
+  free(local_vectorX);
+  free(local_vectorB);
+  MPI_Finalize();
+  return 0;
 }
-if((local_vectorX = malloc((ROWS*COL)*sizeof(float)))==NULL)
+/* memAllocate performs a memory allocation.    
+ */
+float* memAllocate(float *vect, int m, int n)
 {
-	printf("can't allocate memory for vector X\n");
-	MPI_Abort(MPI_COMM_WORLD,1);
+  if((vect = malloc ((m*n)*sizeof(float))) == NULL)
+  {
+    printf("can't allocate memory for vector\n");
+    MPI_Abort(MPI_COMM_WORLD,1);
+  }
+  return vect;
 }
-if((local_vectorB = malloc ((local_row*COL)*sizeof(float))) == NULL)
+void initialize(float *vector, char *filename, int col_num)
 {
-  	printf("can't allocate memory for local vector B\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
+  FILE *reader;                         /* a file pointer         */
+  int i,j;                              /* looping variables      */
+  MPI_Status status;
+  reader = fopen(filename, "r");        /* open file for reading  */
+  if(reader != NULL)                    
+  {
+    for(i = 0; i < ROWS; ++i)
+    {
+      for(j = 0; j < col_num; ++j)
+      {
+        fscanf(reader,"%f%*c", &vector[i*col_num+j]);
+      }
+    }
+    fclose(reader);
+  }
+  else
+  { 
+    printf("Could not open file\n");
+  } 
 }
-if(myrank == 0)
+/* The matvec function requires a matrix and a vector to perform 
+ * Ax. The result is returned to local_matvec.
+ */  
+void matVec(float *local_matvec, float *local_matrixA, 
+  float *local_vectorX, int local_row)
 {
-	if((matrixA = malloc((ROWS*COLS)*sizeof(float)))== NULL)
-    	{	
-    		printf("can't allocate memory for matrix\n");
-    		MPI_Abort(MPI_COMM_WORLD,1);
-    	}
-    	else
-    	{
-    		initialize(matrixA, argv[1], COLS);
-    	}
+  int i,j;
+  for(i = 0; i < local_row; ++i)
+  {
+    local_matvec[i] = 0.0;
+    for(j = 0; j < COLS; ++j)
+    {
+      local_matvec[i] += local_matrixA[i*COLS+j] * local_vectorX[j];
+    }
+  } 
 }
-if(myrank == 0)
+/* The residual function performs b-Ax. 
+ * The result is returned to local_residual.
+ */ 
+void residual(float *local_residual, float *local_vectorB, 
+  float *local_matvec, int local_row)
 {
-    	if((vectorB = malloc((ROWS*COL)*sizeof(float)))==NULL)
-    	{
-    		printf("can't allocate memory for vector B\n");
-    		MPI_Abort(MPI_COMM_WORLD,1);
-    	}
-    	else
-    	{
-    		initialize(vectorB, argv[2], COL);
-    		initialize(local_vectorX, argv[3], COL);
-    	}
+  int i;
+  for(i=0; i < local_row; ++i)
+  {
+    local_residual[i] = local_vectorB[i] - local_matvec[i];
+  }
 }
-MPI_Bcast(local_vectorX,ROWS*COL,MPI_FLOAT,0,MPI_COMM_WORLD);
-MPI_Scatter(matrixA,local_row*COLS,MPI_FLOAT,local_matrixA,local_row*COLS, MPI_FLOAT,0,MPI_COMM_WORLD);
-MPI_Scatter(vectorB,local_row,MPI_FLOAT,local_vectorB,local_row, MPI_FLOAT,0,MPI_COMM_WORLD);
-conjugrad(local_matrixA, local_vectorB, local_vectorX, local_row, myrank);
-MPI_Barrier(MPI_COMM_WORLD);
-finish_time = MPI_Wtime();
-t = clock() - t;
-clock_time_taken = ((double)t)/CLOCKS_PER_SEC;
-if(myrank == 0)
+/* scalarVec computes a scalar-vector multiplication. 
+ * The result is stored to scalar_vect.
+ */ 
+void scalarVec(float *scalar_vect, float *vect, float scalar, 
+  int local_row)
 {
-	printf("matrix size : %d\n", ROWS*COLS );
-   	printf("average mpi execution time in seconds: %f\n", (finish_time - start_time) );
-   	printf("average clock execution time in seconds: %f\n", clock_time_taken );  	
+  int i;
+  for(i=0; i < local_row; ++i)
+  {
+    scalar_vect[i] = vect[i] * scalar;
+  }
 }
-if(myrank == 0)
+/* vecVec returns the results of a vector-vector multiplication. 
+ */ 
+float vecVec(float *vect1,float *vect2, int local_row)
 {
-    	free(matrixA);
-    	free(vectorB);
+  int i;
+  float sum;
+  sum = 0.0;
+  for (i=0; i < local_row; ++i)
+  {
+    sum += vect1[i] * vect2[i] ;
+  }
+  return sum;
 }
-free(local_matrixA);
-free(local_vectorX);
-free(local_vectorB);
-MPI_Finalize();
-return 0;
+/* vecAdd computes a vector-vector addition. 
+ * The result is stored to sumvect.
+ */ 
+void vecAdd(float *sumvect, float *vect1, float *vect2, 
+  int local_row)
+{
+  int i;
+  for (i=0; i < local_row; ++i)
+  {
+    sumvect[i] = vect1[i] + vect2[i] ;
+  } 
 }
-void initialize(float* vector, char* filename, int col_num)
+/* vecSub computes a vector-vector substraction. 
+ * The result is stored to subvect.
+ */ 
+void vecSub(float *subvect, float *vect1, float *vect2, 
+  int local_row)
 {
-FILE *reader;
-int i,j;
-MPI_Status status;
-reader = fopen(filename, "r");
-if(reader != NULL)
+  int i;
+  for (i=0; i < local_row; ++i)
+  {
+    subvect[i] = vect1[i] - vect2[i] ;
+  } 
+}
+/* main function for conjugate gradient method.    
+ */
+void conjugrad(float *local_matrixA,float *local_vectorB,
+  float *local_vectorX, int   local_row, int   myrank, 
+  int   procsnum)
 {
-	for(i = 0; i < ROWS; i++)
-	{
-		for(j = 0; j < col_num; j++)
-		{
-			fscanf(reader,"%f%*c",&vector[i*col_num+j]);
-		}
-	}
+  float *local_matvec,			/* pointer stores Ax       */			
+        *local_vectorR,			/* portion of VectorR      */
+        *local_vectorP,			/* portion of VectorP      */			
+        *vectorP,			/* direction vector        */
+        *vectorR,			/* residual  vector        */
+        *temp_x,			/* temp vectorX            */
+        *temp_r,			/* temp vectorR            */
+        *temp_p,			/* temp vectorP            */
+        rsold,				
+        temp_rsold,
+        temp_alpha,
+        alpha,				/* step length             */
+        temp_beta,
+        beta;				/* new step length         */
+  int   k;				/* loop variable           */
+  double cg_starttime,
+  	 cg_finishtime;
+  MPI_Status status;
+  local_matvec = memAllocate(local_matvec, local_row, COL);
+  local_vectorR = memAllocate(local_vectorR, local_row, COL);
+  local_vectorP = memAllocate(local_vectorP, local_row, COL);
+  vectorP = memAllocate(vectorP, ROWS, COL);
+  vectorR = memAllocate(vectorR, ROWS, COL);
+  temp_x = memAllocate(temp_x, ROWS, COL);
+  temp_r = memAllocate(temp_r, local_row, COL);	
+  temp_p = memAllocate(temp_p, local_row, COL);
+  MPI_Barrier(MPI_COMM_WORLD);
+  cg_starttime = MPI_Wtime();
+  
+  /* start of conjugate gradient execution.    
+   */
+  matVec(local_matvec,local_matrixA,local_vectorX, local_row);
+  residual(local_vectorR, local_vectorB, local_matvec, local_row);
+  residual(local_vectorP, local_vectorB, local_matvec, local_row);
+  temp_rsold = vecVec(local_vectorR, local_vectorR,  local_row);
+  MPI_Allreduce(&temp_rsold,&rsold,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
+  for(k=0; k < ROWS; ++k)
+  {
+    MPI_Allgather(local_vectorP, local_row, MPI_FLOAT, vectorP , local_row, 
+      MPI_FLOAT,MPI_COMM_WORLD);
+    matVec(local_matvec,local_matrixA,vectorP,local_row);
+    temp_alpha = vecVec(local_vectorP, local_matvec,  local_row);
+    MPI_Allreduce(&temp_alpha,&alpha,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
+    
+    /* a step length to find an approximate solution    
+     */
+    alpha = rsold / alpha;
+    scalarVec(temp_x, vectorP, alpha, ROWS);
+    
+    /* compute local_vectorX as approximate solution    
+     */
+    vecAdd(local_vectorX, local_vectorX, temp_x, ROWS);
+    scalarVec(temp_r, local_matvec, alpha, local_row);
+    
+    /* compute local_vectorR as new residual    
+     */
+    vecSub(local_vectorR, local_vectorR, temp_r, local_row);
+    temp_beta = vecVec(local_vectorR, local_vectorR,  local_row);
+    
+    /* an improved  step length.    
+     */
+    MPI_Allreduce(&temp_beta,&beta,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
+    if(sqrt(beta) < EPSILON)
+    {
+      break;
+    }
+    scalarVec(temp_p, local_vectorP, (beta / rsold), local_row);
+    
+    /* compute local_vectorP as new search direction    
+     */
+    vecAdd(local_vectorP, local_vectorR, temp_p, local_row);
+    rsold = beta;
+  }
+  
+  /* end of conjugate gradient execution.    
+   */
+  MPI_Barrier(MPI_COMM_WORLD);
+  cg_finishtime = MPI_Wtime();
+   
+  if(myrank == 0)
+  {
+      //printer(local_vectorX, ROWS, 1);
+      printf("cg method execution time in seconds: %f\n", 
+        (cg_finishtime - cg_starttime) );  
+  }      
+  free(local_matvec);
+  free(local_vectorR);
+  free(local_vectorP);
+  free(vectorP);
+  free(vectorR);
+  free(temp_x);
+  free(temp_r);
+  free(temp_p);
+}
+void printer(float *vect, int rows1, int colunm_num)
+{
+  int i, j;
 
-	fclose(reader);
-}
-else
-{	
-	printf("Could not open file\n");
-}	
-}
-void matVec(float local_matvec[], float local_matrixA[], int local_row, float local_vectorX[])
-{
-int i,j;
-for(i = 0; i < local_row; i++)
-{
-	local_matvec[i] = 0.0;
-	for(j = 0; j < COLS; j++)
-	{
-		local_matvec[i] += local_matrixA[i*COLS+j] * local_vectorX[j];
-	}
-}	
-}
-void residual(float local_vector[], float local_vectorB[], int local_row, float local_matvec[])
-{
-int i;
-for(i=0; i < local_row; i++)
-{
-	local_vector[i] = local_vectorB[i] - local_matvec[i];
-}
-}
-float vecVec(float vect1[],float vect2[], int local_row)
-{
-int i;
-float sum;
-sum = 0.0;
-for (i=0; i < local_row; i++)
-{
-	sum += vect1[i] * vect2[i] ;
-}
-return sum;
-}
-void scalarVec(float temp[], float vect[], float scalar, int local_row)
-{
-int i;
-for(i=0; i < local_row; i++)
-{
-	temp[i] = vect[i] * scalar;
-}
+  for(i=0; i < rows1; ++i)
+  {
+    for(j=0; j < colunm_num; ++j)
+    {
+      printf("%f  ", vect[i*colunm_num+j]);
 
-}
-void vecAdd(float vect[], float vect1[], float vect2[], int local_row)
-{
-int i;
-for (i=0; i < local_row; i++)
-{
-	vect[i] = vect1[i] + vect2[i] ;
-}	
-}
-void vecSub(float vect[], float vect1[], float vect2[], int local_row)
-{
-int i;
-for (i=0; i < local_row; i++)
-{
-	vect[i] = vect1[i] - vect2[i] ;
-}	
-}
-void conjugrad(float local_matrixA[],float local_vectorB[],float local_vectorX[], int local_row, int myrank)
-{
-float *local_matvec,
-      *local_vectorR,
-      *local_vectorP,
-      *vectorP,
-      *vectorR,
-      *temp_x,
-      *temp_r,
-      *temp_p,
-      rsold,
-      temp_rsold,
-      temp_alpha,
-      alpha,
-      temp_beta,
-      beta,
-      store;
-int   i,j,k;
-MPI_Status status;
-if((local_matvec = malloc ((local_row*COL)*sizeof(float))) == NULL)
-{
-	printf("can't allocate memory for local vector for matVec\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
-}
-if((local_vectorR = malloc ((local_row*COL)*sizeof(float))) == NULL)
-{
-	printf("can't allocate memory for local vector R\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
-}
-if((local_vectorP = malloc ((local_row*COL)*sizeof(float))) == NULL)
-{
-	printf("can't allocate memory for local vector R\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
-}
-if((vectorP = malloc ((ROWS*COL)*sizeof(float))) == NULL)
-{
-	printf("can't allocate memory for vector P\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
-}
-if((vectorR = malloc ((ROWS*COL)*sizeof(float))) == NULL)
-{
-	printf("can't allocate memory for vector R\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
-}
-if((temp_x = malloc ((ROWS*COL)*sizeof(float))) == NULL)
-{
-	printf("can't allocate memory for temp local vector X\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
-}
-if((temp_r = malloc ((local_row*COL)*sizeof(float))) == NULL)
-{
-	printf("can't allocate memory for temp local vector R\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
-}
-if((temp_p = malloc ((local_row*COL)*sizeof(float))) == NULL)
-{
-	printf("can't allocate memory for temp local vector P\n");
-    	MPI_Abort(MPI_COMM_WORLD,1);
-}
-matVec(local_matvec,local_matrixA, local_row, local_vectorX);
-residual(local_vectorR, local_vectorB, local_row, local_matvec);
-residual(local_vectorP, local_vectorB, local_row, local_matvec);
-temp_rsold = vecVec(local_vectorR, local_vectorR,  local_row);
-MPI_Allreduce(&temp_rsold,&rsold,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
-for(k=0; k < ROWS; k++)
-{
-	MPI_Allgather(local_vectorP, local_row, MPI_FLOAT, vectorP , local_row, MPI_FLOAT,MPI_COMM_WORLD);
-	matVec(local_matvec,local_matrixA, local_row, vectorP); 
-	temp_alpha = vecVec(local_vectorP, local_matvec,  local_row);
-	MPI_Allreduce(&temp_alpha,&alpha,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
-	alpha = rsold / alpha;		 
-	scalarVec(temp_x, vectorP, alpha, ROWS);
-	vecAdd(local_vectorX, local_vectorX, temp_x, ROWS);
-	scalarVec(temp_r, local_matvec, alpha, local_row);
-	vecSub(local_vectorR, local_vectorR, temp_r, local_row);
-	temp_beta = vecVec(local_vectorR, local_vectorR,  local_row);
-	MPI_Allreduce(&temp_beta,&beta,1,MPI_FLOAT,MPI_SUM,MPI_COMM_WORLD);
-	if(sqrt(beta) < EPSILON)
-	{
-		break;
-	}
-	store = beta / rsold;
-	scalarVec(temp_p, local_vectorP, store, local_row);
-	vecAdd(local_vectorP, local_vectorR, temp_p, local_row);
-	rsold = beta;
-}				
-free(local_matvec);
-free(local_vectorR);
-free(local_vectorP);
-free(vectorP);
-free(vectorR);
-free(temp_x);
-free(temp_r);
-free(temp_p);
-}
-void printer(float vect[], int rows1, int colunm_num)
-{
-	int i, j;
-
-	for(i=0; i < rows1; i++)
-	{
-		for(j=0; j < COL; j++)
-		{
-			printf("%f   ", vect[i*COL+j]);
-
-			if(j == (COL - 1)) 
-				printf("\n");
-		}
-		
-	}
+      if(j == (colunm_num - 1)) 
+        printf("\n");
+    }
+    
+  }
 
 }
